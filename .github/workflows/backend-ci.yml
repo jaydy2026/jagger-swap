@@ -1,0 +1,104 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  lint-and-type-check:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: |
+          pip install flake8 black mypy
+          pip install -r requirements.txt
+
+      - name: Run Black (format check)
+        working-directory: ./backend
+        run: |
+          black --check app/
+
+      - name: Run Flake8
+        working-directory: ./backend
+        run: |
+          flake8 app/ --max-line-length=100 --ignore=E501,W503
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: pip install -r requirements.txt
+
+      - name: Test API endpoints
+        working-directory: ./backend
+        run: |
+          # Start server in background
+          uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          SERVER_PID=$!
+          
+          # Wait for server to start
+          sleep 5
+          
+          # Test endpoints
+          curl -f http://localhost:8000/ || exit 1
+          curl -f http://localhost:8000/status/ || exit 1
+          curl -f http://localhost:8000/status/health || exit 1
+          curl -f http://localhost:8000/camera/devices || exit 1
+          curl -f http://localhost:8000/animation/status || exit 1
+          
+          # Cleanup
+          kill $SERVER_PID || true
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Backend Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: false
+          tags: jagger-swap-backend:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
