@@ -9,3 +9,6 @@ export { DebugOverlay } from './DebugOverlay';
 export { MotionTracker } from './MotionTracker';
 export { Button } from './ui/Button';
 export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './ui/Card';
+
+// Session and Animation modules (available for import)
+export type { PortraitIdentity, AnimationParameters, SessionState } from '@/lib/session';
