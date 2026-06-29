@@ -7,6 +7,9 @@ export { ControlPanel } from './ControlPanel';
 export { SessionView } from './SessionView';
 export { DebugOverlay } from './DebugOverlay';
 export { MotionTracker } from './MotionTracker';
+export { Diagnostics } from './Diagnostics';
+export { Recording } from './Recording';
+export { SettingsPanel } from './SettingsPanel';
 export { Button } from './ui/Button';
 export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './ui/Card';
 

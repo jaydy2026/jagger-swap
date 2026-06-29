@@ -28,3 +28,5 @@ export { PortraitAnimationEngine, createPortraitAnimationEngine } from './portra
 export { PortraitRenderer } from './portrait-renderer';
 export { PortraitDetector, PortraitLandmarks, normalizePoints, denormalizePoints } from './portrait-detector';
 export { AdvancedPortraitRenderer } from './advanced-renderer';
+export { PerformanceOptimizer, PerformanceMetrics, QualitySettings as PerformanceQualitySettings } from './performance-optimizer';
+export { WebGLRenderer } from './webgl-renderer';

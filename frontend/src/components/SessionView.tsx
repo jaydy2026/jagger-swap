@@ -1,15 +1,17 @@
 'use client';
 
 import React, { useCallback, useRef, useState, useEffect } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Settings } from 'lucide-react';
 import { useWebcam } from '@/hooks/useWebcam';
 import { useSession } from '@/lib/session';
+import { useSettings } from '@/lib/settings';
 import { PortraitAnimationEngine } from '@/lib/animation';
 import { Header } from './Header';
 import { WebcamPanel } from './WebcamPanel';
 import { AnimatedPortraitPanel } from './AnimatedPortrait';
-import { ImageUpload } from './ImageUpload';
 import { ControlPanel } from './ControlPanel';
+import { SettingsPanel } from './SettingsPanel';
+import { Diagnostics } from './Diagnostics';
 import { Card } from './ui/Card';
 
 interface SessionViewProps {
@@ -19,14 +21,26 @@ interface SessionViewProps {
 export function SessionView({ onExit }: SessionViewProps) {
   const webcam = useWebcam();
   const { state: sessionState, setPortrait, setAnimationStatus, clearPortrait } = useSession();
+  const { settings } = useSettings();
   
   const animationEngineRef = useRef<PortraitAnimationEngine | null>(null);
   const animationCanvasRef = useRef<HTMLCanvasElement | null>(null);
   
   const [showDebug, setShowDebug] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [fps, setFps] = useState(0);
   const [latency, setLatency] = useState(0);
+  const [trackingConfidence, setTrackingConfidence] = useState(0);
+  const [renderingConfidence, setRenderingConfidence] = useState(0);
+  const [droppedFrames, setDroppedFrames] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync debug state with settings
+  useEffect(() => {
+    setShowDebug(settings.debug.showDebugOverlay);
+    setShowDiagnostics(settings.debug.showPerformanceMetrics);
+  }, [settings.debug.showDebugOverlay, settings.debug.showPerformanceMetrics]);
 
   // Handle portrait upload
   const handleFileSelect = useCallback(
@@ -92,6 +106,11 @@ export function SessionView({ onExit }: SessionViewProps) {
   const initializeAnimation = useCallback(async (canvas: HTMLCanvasElement) => {
     if (!sessionState.portrait || !webcam.videoRef.current) return;
     
+    // Dispose existing engine
+    if (animationEngineRef.current) {
+      animationEngineRef.current.dispose();
+    }
+    
     try {
       // Create animation engine
       const engine = new PortraitAnimationEngine(canvas);
@@ -109,6 +128,10 @@ export function SessionView({ onExit }: SessionViewProps) {
         onFrame: (result) => {
           setFps(result.fps);
           setLatency(result.renderTime);
+          setRenderingConfidence(result.quality.score);
+          if (result.quality.issues.length > 0) {
+            setDroppedFrames(prev => prev + 1);
+          }
         },
         onEvent: (event) => {
           if (event.type === 'error') {
@@ -158,13 +181,24 @@ export function SessionView({ onExit }: SessionViewProps) {
 
       <main className="container mx-auto px-4 pt-24 pb-8">
         {/* Back button */}
-        <button
-          onClick={onExit}
-          className="mb-6 flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Home
-        </button>
+        <div className="mb-6 flex items-center justify-between">
+          <button
+            onClick={onExit}
+            className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Home
+          </button>
+          
+          {/* Settings button */}
+          <button
+            onClick={() => setShowSettings(true)}
+            className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <Settings className="h-4 w-4" />
+            Settings
+          </button>
+        </div>
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr,320px]">
           {/* Left Panel - Main Content Area */}
@@ -215,22 +249,28 @@ export function SessionView({ onExit }: SessionViewProps) {
               onToggleDebug={handleToggleDebug}
               showDebug={showDebug}
             />
-
-            {/* Image Upload Section (Mobile) */}
-            <Card className="lg:hidden">
-              <div className="p-4">
-                <h3 className="mb-4 text-lg font-semibold">Upload Image</h3>
-                <ImageUpload
-                  state={{ preview: sessionState.portrait?.imageData || null, file: null, error: null }}
-                  onFileSelect={handleFileSelect}
-                  onClear={clearPortrait}
-                  onReplace={handleReplaceImage}
-                />
-              </div>
-            </Card>
           </div>
         </div>
       </main>
+
+      {/* Settings Panel */}
+      <SettingsPanel
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+      />
+
+      {/* Diagnostics */}
+      <Diagnostics
+        motionFps={fps}
+        motionLatency={latency}
+        animationFps={fps}
+        animationLatency={latency}
+        trackingConfidence={trackingConfidence}
+        renderingConfidence={renderingConfidence}
+        droppedFrames={droppedFrames}
+        isOpen={showDiagnostics}
+        onClose={() => setShowDiagnostics(false)}
+      />
     </div>
   );
 }
