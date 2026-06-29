@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState } from 'react';
 import {
   Play,
@@ -10,6 +12,7 @@ import {
   Zap,
   ChevronDown,
   ChevronUp,
+  Bug,
 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/Card';
@@ -24,6 +27,8 @@ interface ControlPanelProps {
   onFullscreen: () => void;
   fps: number;
   latency: number;
+  onToggleDebug?: () => void;
+  showDebug?: boolean;
 }
 
 export function ControlPanel({
@@ -36,6 +41,8 @@ export function ControlPanel({
   onFullscreen,
   fps,
   latency,
+  onToggleDebug,
+  showDebug = false,
 }: ControlPanelProps) {
   const [showSettings, setShowSettings] = useState(false);
 
@@ -98,6 +105,16 @@ export function ControlPanel({
             <Maximize className="mr-2 h-4 w-4" />
             Fullscreen
           </Button>
+
+          {/* Debug Toggle */}
+          <Button
+            onClick={onToggleDebug}
+            variant={showDebug ? 'default' : 'outline'}
+            className="w-full"
+          >
+            <Bug className="mr-2 h-4 w-4" />
+            {showDebug ? 'Hide Debug' : 'Show Debug'}
+          </Button>
         </CardContent>
       </Card>
 
@@ -106,7 +123,7 @@ export function ControlPanel({
         <CardHeader className="pb-4">
           <CardTitle className="flex items-center gap-2 text-lg">
             <Activity className="h-4 w-4" />
-            Performance
+            Motion Tracking
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -117,7 +134,7 @@ export function ControlPanel({
               <span>FPS</span>
             </div>
             <span className="font-mono text-lg font-semibold">
-              {fps.toFixed(1)}
+              {fps > 0 ? fps.toFixed(1) : '--'}
             </span>
           </div>
 
@@ -128,13 +145,15 @@ export function ControlPanel({
               <span>Latency</span>
             </div>
             <span className="font-mono text-lg font-semibold">
-              {latency.toFixed(0)}ms
+              {latency > 0 ? `${latency.toFixed(0)}ms` : '--'}
             </span>
           </div>
 
-          {/* Placeholder status */}
-          <div className="rounded-lg bg-muted/50 p-3 text-center text-sm text-muted-foreground">
-            <p>Metrics will appear when animation starts</p>
+          {/* Tracking Status */}
+          <div className="rounded-lg bg-muted/50 p-3">
+            <p className="text-sm text-muted-foreground">
+              {isCameraActive ? 'Motion tracking active' : 'Start camera to begin tracking'}
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -173,6 +192,15 @@ export function ControlPanel({
               <label className="text-sm font-medium">Camera</label>
               <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
                 <option value="">Default Camera</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Smoothing</label>
+              <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
               </select>
             </div>
 

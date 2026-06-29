@@ -15,7 +15,12 @@
     "next": "14.2.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "lucide-react": "^0.441.0"
+    "lucide-react": "^0.441.0",
+    "@mediapipe/face_mesh": "^0.4.1675461620",
+    "@mediapipe/pose": "^0.5.1675461620",
+    "@mediapipe/hands": "^0.4.1675461620",
+    "@mediapipe/camera_utils": "^0.3.1675461620",
+    "@mediapipe/drawing_utils": "^0.3.1675461620"
   },
   "devDependencies": {
     "@types/node": "^20.14.12",

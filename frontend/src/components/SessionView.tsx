@@ -9,7 +9,6 @@ import { WebcamPanel } from './WebcamPanel';
 import { AnimatedPortraitPanel } from './AnimatedPortrait';
 import { ImageUpload } from './ImageUpload';
 import { ControlPanel } from './ControlPanel';
-import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 
 interface SessionViewProps {
@@ -19,6 +18,9 @@ interface SessionViewProps {
 export function SessionView({ onExit }: SessionViewProps) {
   const webcam = useWebcam();
   const imageUpload = useImageUpload();
+  const debugCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  const [showDebug, setShowDebug] = useState(false);
   const [fps, setFps] = useState(0);
   const [latency, setLatency] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -45,6 +47,10 @@ export function SessionView({ onExit }: SessionViewProps) {
     [imageUpload]
   );
 
+  const handleToggleDebug = useCallback(() => {
+    setShowDebug((prev) => !prev);
+  }, []);
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -64,11 +70,13 @@ export function SessionView({ onExit }: SessionViewProps) {
           <div className="space-y-6">
             {/* Two-panel layout */}
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-              {/* Left: Webcam */}
+              {/* Left: Webcam with motion tracking */}
               <WebcamPanel
                 videoRef={webcam.videoRef}
                 isActive={webcam.state.isActive}
                 error={webcam.state.error || webcam.error}
+                showDebugOverlay={showDebug}
+                debugCanvasRef={debugCanvasRef}
               />
 
               {/* Right: Animated Portrait */}
@@ -103,6 +111,8 @@ export function SessionView({ onExit }: SessionViewProps) {
               onFullscreen={handleFullscreen}
               fps={fps}
               latency={latency}
+              onToggleDebug={handleToggleDebug}
+              showDebug={showDebug}
             />
 
             {/* Image Upload Section (Mobile) */}
