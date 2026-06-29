@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronUp,
   Bug,
+  Lock,
 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/Card';
@@ -45,6 +46,7 @@ export function ControlPanel({
   showDebug = false,
 }: ControlPanelProps) {
   const [showSettings, setShowSettings] = useState(false);
+  const isAnimating = isCameraActive && hasImage;
 
   return (
     <div className="flex flex-col gap-4">
@@ -118,15 +120,23 @@ export function ControlPanel({
         </CardContent>
       </Card>
 
-      {/* Performance Metrics */}
+      {/* Animation Status */}
       <Card>
         <CardHeader className="pb-4">
           <CardTitle className="flex items-center gap-2 text-lg">
             <Activity className="h-4 w-4" />
-            Motion Tracking
+            Animation
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Status */}
+          <div className="flex items-center gap-2">
+            <div className={`h-3 w-3 rounded-full ${isAnimating ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+            <span className="text-sm font-medium">
+              {isAnimating ? 'Animating Portrait' : 'Ready'}
+            </span>
+          </div>
+
           {/* FPS */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -149,10 +159,22 @@ export function ControlPanel({
             </span>
           </div>
 
-          {/* Tracking Status */}
+          {/* Identity Lock Indicator */}
+          {hasImage && (
+            <div className="flex items-center gap-2 rounded-lg bg-green-500/10 p-3">
+              <Lock className="h-4 w-4 text-green-500" />
+              <span className="text-sm text-green-500">Identity Locked</span>
+            </div>
+          )}
+
+          {/* Instructions */}
           <div className="rounded-lg bg-muted/50 p-3">
             <p className="text-sm text-muted-foreground">
-              {isCameraActive ? 'Motion tracking active' : 'Start camera to begin tracking'}
+              {!hasImage
+                ? 'Upload an image to begin'
+                : !isCameraActive
+                ? 'Start camera to animate portrait'
+                : 'Portrait is being animated'}
             </p>
           </div>
         </CardContent>
@@ -198,19 +220,20 @@ export function ControlPanel({
             <div className="space-y-2">
               <label className="text-sm font-medium">Smoothing</label>
               <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                <option value="low">Low</option>
+                <option value="low">Low (Less smoothing)</option>
                 <option value="medium" selected>Medium</option>
-                <option value="high">High</option>
+                <option value="high">High (More smoothing)</option>
               </select>
             </div>
 
             <div className="flex items-center justify-between">
               <label className="text-sm font-medium">
-                Show Performance Metrics
+                Show Debug Overlay
               </label>
               <input
                 type="checkbox"
-                defaultChecked
+                checked={showDebug}
+                onChange={onToggleDebug}
                 className="h-4 w-4 rounded border-input"
               />
             </div>

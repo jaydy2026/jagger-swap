@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useWebcam } from '@/hooks/useWebcam';
-import { useImageUpload } from '@/hooks/useImageUpload';
+import { useSession } from '@/lib/session';
+import { PortraitAnimationEngine } from '@/lib/animation';
 import { Header } from './Header';
 import { WebcamPanel } from './WebcamPanel';
 import { AnimatedPortraitPanel } from './AnimatedPortrait';
@@ -17,13 +18,46 @@ interface SessionViewProps {
 
 export function SessionView({ onExit }: SessionViewProps) {
   const webcam = useWebcam();
-  const imageUpload = useImageUpload();
-  const debugCanvasRef = useRef<HTMLCanvasElement>(null);
-
+  const { state: sessionState, setPortrait, setAnimationStatus, clearPortrait } = useSession();
+  
+  const animationEngineRef = useRef<PortraitAnimationEngine | null>(null);
+  const animationCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  
   const [showDebug, setShowDebug] = useState(false);
   const [fps, setFps] = useState(0);
   const [latency, setLatency] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Handle portrait upload
+  const handleFileSelect = useCallback(
+    async (file: File) => {
+      try {
+        // Create object URL for preview
+        const preview = URL.createObjectURL(file);
+        
+        // Create portrait identity
+        const img = new Image();
+        img.onload = () => {
+          setPortrait({
+            id: `portrait_${Date.now()}`,
+            imageData: preview,
+            originalDimensions: { width: img.width, height: img.height },
+            aspectRatio: img.width / img.height,
+            metadata: {
+              uploadedAt: Date.now(),
+              filename: file.name,
+              format: file.type.split('/')[1] as 'png' | 'jpeg' | 'jpg',
+              fileSize: file.size,
+            },
+          });
+        };
+        img.src = preview;
+      } catch (error) {
+        console.error('Failed to process image:', error);
+      }
+    },
+    [setPortrait]
+  );
 
   const handleUploadClick = useCallback(() => {
     fileInputRef.current?.click();
@@ -40,15 +74,82 @@ export function SessionView({ onExit }: SessionViewProps) {
     }
   }, []);
 
-  const handleFileSelect = useCallback(
-    (file: File) => {
-      imageUpload.handleFileSelect(file);
-    },
-    [imageUpload]
-  );
-
   const handleToggleDebug = useCallback(() => {
     setShowDebug((prev) => !prev);
+  }, []);
+
+  // Handle animation canvas ready
+  const handleAnimationCanvasReady = useCallback((canvas: HTMLCanvasElement) => {
+    animationCanvasRef.current = canvas;
+    
+    // If we have both portrait and video, initialize animation
+    if (sessionState.portrait && webcam.videoRef.current) {
+      initializeAnimation(canvas);
+    }
+  }, [sessionState.portrait, webcam.videoRef.current]);
+
+  // Initialize animation engine
+  const initializeAnimation = useCallback(async (canvas: HTMLCanvasElement) => {
+    if (!sessionState.portrait || !webcam.videoRef.current) return;
+    
+    try {
+      // Create animation engine
+      const engine = new PortraitAnimationEngine(canvas);
+      animationEngineRef.current = engine;
+      
+      // Initialize with portrait
+      await engine.initialize(sessionState.portrait);
+      
+      // Set video source
+      engine.setVideoSource(webcam.videoRef.current);
+      
+      // Subscribe to frames for FPS/latency updates
+      engine.subscribe({
+        id: 'session-view',
+        onFrame: (result) => {
+          setFps(result.fps);
+          setLatency(result.renderTime);
+        },
+        onEvent: (event) => {
+          if (event.type === 'error') {
+            console.error('Animation error:', event.data);
+          }
+        },
+      });
+      
+      // Start animation
+      engine.start();
+      setAnimationStatus(true, fps, latency);
+    } catch (error) {
+      console.error('Failed to initialize animation:', error);
+    }
+  }, [sessionState.portrait, webcam.videoRef.current, setAnimationStatus, fps, latency]);
+
+  // Start animation when both portrait and webcam are ready
+  useEffect(() => {
+    if (sessionState.portrait && webcam.state.isActive && webcam.videoRef.current && animationCanvasRef.current) {
+      if (!animationEngineRef.current) {
+        initializeAnimation(animationCanvasRef.current);
+      }
+    }
+  }, [sessionState.portrait, webcam.state.isActive, webcam.videoRef.current, initializeAnimation]);
+
+  // Stop animation when camera stops
+  useEffect(() => {
+    if (!webcam.state.isActive && animationEngineRef.current) {
+      animationEngineRef.current.stop();
+      setAnimationStatus(false);
+    }
+  }, [webcam.state.isActive, setAnimationStatus]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (animationEngineRef.current) {
+        animationEngineRef.current.dispose();
+        animationEngineRef.current = null;
+      }
+    };
   }, []);
 
   return (
@@ -70,19 +171,19 @@ export function SessionView({ onExit }: SessionViewProps) {
           <div className="space-y-6">
             {/* Two-panel layout */}
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-              {/* Left: Webcam with motion tracking */}
+              {/* Left: Webcam (Motion Source) */}
               <WebcamPanel
                 videoRef={webcam.videoRef}
                 isActive={webcam.state.isActive}
                 error={webcam.state.error || webcam.error}
                 showDebugOverlay={showDebug}
-                debugCanvasRef={debugCanvasRef}
               />
 
-              {/* Right: Animated Portrait */}
+              {/* Right: Animated Portrait (Identity Display) */}
               <AnimatedPortraitPanel
-                uploadedImage={imageUpload.state}
                 onUploadClick={handleUploadClick}
+                videoElement={webcam.videoRef.current}
+                onAnimationReady={handleAnimationCanvasReady}
               />
             </div>
 
@@ -103,7 +204,7 @@ export function SessionView({ onExit }: SessionViewProps) {
           <div className="space-y-4">
             <ControlPanel
               isCameraActive={webcam.state.isActive}
-              hasImage={imageUpload.state.preview !== null}
+              hasImage={sessionState.portrait !== null}
               onStartCamera={() => webcam.startCamera()}
               onStopCamera={webcam.stopCamera}
               onUploadClick={handleUploadClick}
@@ -120,9 +221,9 @@ export function SessionView({ onExit }: SessionViewProps) {
               <div className="p-4">
                 <h3 className="mb-4 text-lg font-semibold">Upload Image</h3>
                 <ImageUpload
-                  state={imageUpload.state}
+                  state={{ preview: sessionState.portrait?.imageData || null, file: null, error: null }}
                   onFileSelect={handleFileSelect}
-                  onClear={imageUpload.clearUpload}
+                  onClear={clearPortrait}
                   onReplace={handleReplaceImage}
                 />
               </div>

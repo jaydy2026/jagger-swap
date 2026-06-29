@@ -2,43 +2,45 @@
 'use client';
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Image as ImageIcon, Sparkles, RefreshCw, Loader2 } from 'lucide-react';
+import { Image as ImageIcon, Sparkles, RefreshCw, Loader2, AlertCircle, Lock } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/Card';
 import { useSession } from '@/lib/session';
 import { PortraitIdentity } from '@/lib/session/types';
 
 interface AnimatedPortraitPanelProps {
   onUploadClick: () => void;
-  renderFrame?: string | null;
-  isAnimating?: boolean;
+  videoElement?: HTMLVideoElement | null;
+  onAnimationReady?: (canvas: HTMLCanvasElement) => void;
 }
 
 export function AnimatedPortraitPanel({
   onUploadClick,
-  renderFrame,
-  isAnimating = false,
+  videoElement,
+  onAnimationReady,
 }: AnimatedPortraitPanelProps) {
   const { state } = useSession();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [imageLoaded, setImageLoaded] = useState(false);
+  const imageRef = useRef<HTMLImageElement>(null);
+  const [showAnimated, setShowAnimated] = useState(false);
+  const [animationFps, setAnimationFps] = useState(0);
+  const [animationError, setAnimationError] = useState<string | null>(null);
 
   const portrait = state.portrait;
+  const isAnimating = state.isAnimationActive;
 
-  // Render the animated frame when it changes
+  // Expose canvas when portrait and video are ready
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !renderFrame) return;
+    if (portrait && videoElement && canvasRef.current && onAnimationReady) {
+      onAnimationReady(canvasRef.current);
+    }
+  }, [portrait, videoElement, onAnimationReady]);
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const img = new Image();
-    img.onload = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    };
-    img.src = renderFrame;
-  }, [renderFrame]);
+  // Auto-show animated view when animation starts
+  useEffect(() => {
+    if (isAnimating && portrait) {
+      setShowAnimated(true);
+    }
+  }, [isAnimating, portrait]);
 
   return (
     <Card className="h-full">
@@ -46,10 +48,10 @@ export function AnimatedPortraitPanel({
         <CardTitle className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-primary" />
           <span>Animated Portrait</span>
-          {isAnimating && (
+          {portrait && (
             <span className="ml-2 flex items-center gap-1 text-xs text-green-500">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
-              LIVE
+              <Lock className="h-3 w-3" />
+              IDENTITY LOCKED
             </span>
           )}
         </CardTitle>
@@ -58,22 +60,36 @@ export function AnimatedPortraitPanel({
         <div className="video-container relative flex flex-col items-center justify-center">
           {portrait ? (
             <>
-              {/* Show animated frame or original portrait */}
-              {renderFrame ? (
-                <canvas
-                  ref={canvasRef}
-                  width={512}
-                  height={512}
-                  className="h-full w-full rounded-lg object-contain"
-                />
-              ) : (
-                <img
-                  src={portrait.imageData}
-                  alt="Uploaded portrait"
-                  className="h-full w-full rounded-lg object-contain"
-                  onLoad={() => setImageLoaded(true)}
-                />
-              )}
+              {/* Show animated canvas or static portrait */}
+              <div className="relative h-full w-full">
+                {showAnimated ? (
+                  <>
+                    <canvas
+                      ref={canvasRef}
+                      className="h-full w-full rounded-lg object-contain"
+                      style={{ display: portrait ? 'block' : 'none' }}
+                    />
+                    {/* Fallback image while canvas loads */}
+                    <img
+                      ref={imageRef}
+                      src={portrait.imageData}
+                      alt="Portrait"
+                      className="h-full w-full rounded-lg object-contain"
+                      style={{ display: 'none' }}
+                      onError={() => {
+                        setAnimationError('Failed to render animation');
+                        setShowAnimated(false);
+                      }}
+                    />
+                  </>
+                ) : (
+                  <img
+                    src={portrait.imageData}
+                    alt="Uploaded portrait"
+                    className="h-full w-full rounded-lg object-contain"
+                  />
+                )}
+              </div>
 
               {/* Overlay with replace button */}
               <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity hover:opacity-100">
@@ -86,11 +102,20 @@ export function AnimatedPortraitPanel({
                 </button>
               </div>
 
-              {/* Animation status */}
+              {/* Animation status badge */}
               {isAnimating && (
-                <div className="absolute bottom-2 right-2 flex items-center gap-2 rounded-full bg-green-500/80 px-2 py-1 text-xs text-white">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  <span>Animating</span>
+                <div className="absolute bottom-2 right-2 flex items-center gap-2 rounded-full bg-green-500/90 px-3 py-1 text-xs text-white shadow-lg">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
+                  <span>ANIMATING</span>
+                  <span className="font-mono">{animationFps.toFixed(0)} FPS</span>
+                </div>
+              )}
+
+              {/* Error display */}
+              {animationError && (
+                <div className="absolute bottom-2 left-2 right-2 flex items-center gap-2 rounded-lg bg-red-500/90 px-3 py-2 text-xs text-white">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>{animationError}</span>
                 </div>
               )}
             </>
@@ -114,15 +139,29 @@ export function AnimatedPortraitPanel({
         </div>
 
         {/* Status indicator */}
-        <div className="mt-4 flex items-center justify-center gap-2 text-sm">
-          <div className={`h-2 w-2 rounded-full ${portrait ? (isAnimating ? 'animate-pulse bg-green-500' : 'bg-yellow-500') : 'bg-gray-500'}`} />
-          <span className="text-muted-foreground">
-            {portrait
-              ? isAnimating
-                ? 'Portrait animated with your movements'
-                : 'Portrait loaded - start camera to animate'
-              : 'Upload a portrait to begin'}
-          </span>
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center justify-center gap-2 text-sm">
+            <div className={`h-2 w-2 rounded-full ${
+              portrait 
+                ? (isAnimating ? 'animate-pulse bg-green-500' : 'bg-yellow-500') 
+                : 'bg-gray-500'
+            }`} />
+            <span className="text-muted-foreground">
+              {portrait
+                ? isAnimating
+                  ? 'Portrait animated with your movements'
+                  : 'Portrait loaded - start camera to animate'
+                : 'Upload a portrait to begin'}
+            </span>
+          </div>
+
+          {/* Identity lock indicator */}
+          {portrait && (
+            <div className="flex items-center justify-center gap-2 text-xs text-green-600">
+              <Lock className="h-3 w-3" />
+              <span>Identity preserved throughout session</span>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
