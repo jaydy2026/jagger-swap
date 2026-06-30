@@ -16,14 +16,26 @@ class Settings(BaseSettings):
     # CORS settings
     cors_origins: list[str] = ["*"]
     
+    # Security settings
+    rate_limit_requests: int = 100  # requests per minute
+    rate_limit_burst: int = 20  # burst size
+    
     # File upload settings
     upload_dir: str = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
     max_file_size: int = 10 * 1024 * 1024  # 10MB
     allowed_extensions: list[str] = ["png", "jpg", "jpeg"]
     
+    # Session settings
+    session_timeout_minutes: int = 30
+    session_cleanup_interval_seconds: int = 60
+    
     # Camera settings
     default_resolution: str = "1280x720"
     target_fps: int = 30
+    
+    # Recording settings
+    recording_dir: str = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "recordings")
+    max_recording_duration_seconds: int = 300  # 5 minutes
     
     # Animation settings (placeholders for future AI modules)
     animation_model_path: str = ""

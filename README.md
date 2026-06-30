@@ -65,8 +65,10 @@ This is the foundation for the full JAGGER SWAP application. Milestone 1 include
 | Milestone | Description | Status |
 |-----------|-------------|--------|
 | Milestone 1 | Foundation - Website & Backend | ✅ Complete |
-| Milestone 2 | AI Animation Engine | 🔜 In Progress |
-| Milestone 3 | Advanced Features & Optimization | 📋 Planned |
+| Milestone 2A | Real-Time Motion Capture Engine | ✅ Complete |
+| Milestone 2B | Portrait Animation Engine | ✅ Complete |
+| Milestone 3 | Production Optimization & Real-Time Experience | ✅ Complete |
+| Milestone 4 | Production Deployment & Public Beta | 🔜 In Progress |
 
 ## 🏃 Getting Started
 
