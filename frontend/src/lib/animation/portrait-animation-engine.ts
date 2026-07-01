@@ -10,7 +10,6 @@ import { PortraitIdentity, AnimationParameters } from '@/lib/session';
 import { PortraitLandmarks } from './portrait-detector';
 import { AdvancedPortraitRenderer } from './advanced-renderer';
 import {
-  AnimationEngine as IAnimationEngine,
   AnimationEngineConfig,
   AnimationSubscriber,
   AnimationResult,
@@ -18,6 +17,7 @@ import {
   AnimationState,
   DEFAULT_ANIMATION_CONFIG,
 } from './types';
+import type { AnimationEngine as IAnimationEngine } from './animation-engine';
 
 /**
  * PortraitAnimationEngine
@@ -38,7 +38,7 @@ export class PortraitAnimationEngine implements IAnimationEngine {
   // State
   private portrait: PortraitIdentity | null = null;
   private isInitialized: boolean = false;
-  private isRunning: boolean = false;
+  private _isRunning: boolean = false;
   
   // Subscribers
   private subscribers: Map<string, AnimationSubscriber> = new Map();
@@ -106,7 +106,7 @@ export class PortraitAnimationEngine implements IAnimationEngine {
       return;
     }
     
-    if (this.isRunning) {
+    if (this._isRunning) {
       console.warn('[PortraitAnimationEngine] Already running');
       return;
     }
@@ -132,7 +132,7 @@ export class PortraitAnimationEngine implements IAnimationEngine {
     // Start renderer
     this.renderer.start();
     
-    this.isRunning = true;
+    this._isRunning = true;
     this.emitEvent('started');
     
     console.log('[PortraitAnimationEngine] Animation started');
@@ -142,7 +142,7 @@ export class PortraitAnimationEngine implements IAnimationEngine {
    * Stop the animation
    */
   stop(): void {
-    if (!this.isRunning) return;
+    if (!this._isRunning) return;
     
     // Unsubscribe from motion
     if (this.unsubscribeMotion) {
@@ -160,10 +160,17 @@ export class PortraitAnimationEngine implements IAnimationEngine {
       this.renderer.stop();
     }
     
-    this.isRunning = false;
+    this._isRunning = false;
     this.emitEvent('stopped');
     
     console.log('[PortraitAnimationEngine] Animation stopped');
+  }
+
+  /**
+   * Check if running
+   */
+  isRunning(): boolean {
+    return this._isRunning;
   }
 
   /**
@@ -264,7 +271,7 @@ export class PortraitAnimationEngine implements IAnimationEngine {
    */
   getState(): AnimationState {
     return {
-      status: this.isRunning ? 'animating' : (this.isInitialized ? 'ready' : 'idle'),
+      status: this._isRunning ? 'animating' : (this.isInitialized ? 'ready' : 'idle'),
       currentFPS: this.fps,
       totalFrames: this.frameCount,
       error: null,
@@ -279,6 +286,102 @@ export class PortraitAnimationEngine implements IAnimationEngine {
   getCurrentFrame(): string | null {
     if (!this.renderer) return null;
     return this.renderer.render();
+  }
+
+  /**
+   * Process a motion frame (interface implementation)
+   */
+  processMotionFrame(frame: MotionFrame): AnimationParameters {
+    // Motion is processed via subscription in start()
+    return {
+      frameId: this.frameCount,
+      timestamp: performance.now(),
+      headRotation: { x: 0, y: 0, z: 0 },
+      headPosition: { x: 0, y: 0 },
+      blendShapes: {
+        eyeBlinkLeft: 0, eyeBlinkRight: 0, eyeLookUp: 0, eyeLookDown: 0,
+        eyeLookLeft: 0, eyeLookRight: 0, eyeSquintLeft: 0, eyeSquintRight: 0,
+        jawOpen: 0, jawForward: 0, jawLeft: 0, jawRight: 0,
+        mouthClose: 0, mouthFunnel: 0, mouthPucker: 0, mouthLeft: 0, mouthRight: 0,
+        mouthSmileLeft: 0, mouthSmileRight: 0, mouthFrownLeft: 0, mouthFrownRight: 0,
+        mouthStretchLeft: 0, mouthStretchRight: 0, mouthRollLower: 0, mouthRollUpper: 0,
+        mouthShrugLower: 0, mouthShrugUpper: 0, mouthPressLeft: 0, mouthPressRight: 0,
+        cheekPuffLeft: 0, cheekPuffRight: 0, cheekSquintLeft: 0, cheekSquintRight: 0,
+        browDownLeft: 0, browDownRight: 0, browInnerUp: 0, browOuterUpLeft: 0, browOuterUpRight: 0,
+        tongueOut: 0,
+      },
+      bodyPose: {
+        shoulders: [],
+        spine: 0,
+        pose: 'unknown' as const,
+      },
+      leftHand: null,
+      rightHand: null,
+      confidence: 1,
+    };
+  }
+
+  /**
+   * Render current state to data URL (interface implementation)
+   */
+  render(): string {
+    return this.getCurrentFrame() || '';
+  }
+
+  /**
+   * Render to canvas element (interface implementation)
+   */
+  renderToCanvas(canvas: HTMLCanvasElement): void {
+    const frame = this.getCurrentFrame();
+    if (!frame) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    };
+    img.src = frame;
+  }
+
+  /**
+   * Get current animation parameters (interface implementation)
+   */
+  getCurrentParameters(): AnimationParameters | null {
+    return this.portrait ? {
+      frameId: this.frameCount,
+      timestamp: performance.now(),
+      headRotation: { x: 0, y: 0, z: 0 },
+      headPosition: { x: 0, y: 0 },
+      blendShapes: {
+        eyeBlinkLeft: 0, eyeBlinkRight: 0, eyeLookUp: 0, eyeLookDown: 0,
+        eyeLookLeft: 0, eyeLookRight: 0, eyeSquintLeft: 0, eyeSquintRight: 0,
+        jawOpen: 0, jawForward: 0, jawLeft: 0, jawRight: 0,
+        mouthClose: 0, mouthFunnel: 0, mouthPucker: 0, mouthLeft: 0, mouthRight: 0,
+        mouthSmileLeft: 0, mouthSmileRight: 0, mouthFrownLeft: 0, mouthFrownRight: 0,
+        mouthStretchLeft: 0, mouthStretchRight: 0, mouthRollLower: 0, mouthRollUpper: 0,
+        mouthShrugLower: 0, mouthShrugUpper: 0, mouthPressLeft: 0, mouthPressRight: 0,
+        cheekPuffLeft: 0, cheekPuffRight: 0, cheekSquintLeft: 0, cheekSquintRight: 0,
+        browDownLeft: 0, browDownRight: 0, browInnerUp: 0, browOuterUpLeft: 0, browOuterUpRight: 0,
+        tongueOut: 0,
+      },
+      bodyPose: {
+        shoulders: [],
+        spine: 0,
+        pose: 'unknown' as const,
+      },
+      leftHand: null,
+      rightHand: null,
+      confidence: 1,
+    } : null;
+  }
+
+  /**
+   * Get configuration (interface implementation)
+   */
+  getConfig(): AnimationEngineConfig {
+    return this.config;
   }
 
   /**

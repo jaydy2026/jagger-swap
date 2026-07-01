@@ -22,11 +22,25 @@
  * ```
  */
 
+// Types
 export * from './types';
-export { AnimationEngine, BaseAnimationEngine, createAnimationEngine } from './animation-engine';
+
+// Animation engine
+export { BaseAnimationEngine, createAnimationEngine } from './animation-engine';
+export type { AnimationEngine } from './animation-engine';
+
+// Portrait animation
 export { PortraitAnimationEngine, createPortraitAnimationEngine } from './portrait-animation-engine';
+
+// Rendering
 export { PortraitRenderer } from './portrait-renderer';
-export { PortraitDetector, PortraitLandmarks, normalizePoints, denormalizePoints } from './portrait-detector';
+export { PortraitDetector, normalizePoints, denormalizePoints } from './portrait-detector';
+export type { PortraitLandmarks } from './portrait-detector';
 export { AdvancedPortraitRenderer } from './advanced-renderer';
-export { PerformanceOptimizer, PerformanceMetrics, QualitySettings as PerformanceQualitySettings } from './performance-optimizer';
+
+// Performance
+export { PerformanceOptimizer } from './performance-optimizer';
+export type { PerformanceMetrics, QualitySettings as PerformanceQualitySettings } from './performance-optimizer';
+
+// WebGL
 export { WebGLRenderer } from './webgl-renderer';

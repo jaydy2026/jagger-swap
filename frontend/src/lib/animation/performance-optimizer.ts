@@ -505,9 +505,10 @@ export class PerformanceOptimizer {
       }
     }
 
-    // Memory usage estimate
-    if (performance.memory) {
-      this.metrics.memoryUsage = performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit;
+    // Memory usage estimate (Chrome-specific API)
+    const perf = performance as Performance & { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } };
+    if (perf.memory) {
+      this.metrics.memoryUsage = perf.memory.usedJSHeapSize / perf.memory.jsHeapSizeLimit;
     }
 
     // Total latency estimate

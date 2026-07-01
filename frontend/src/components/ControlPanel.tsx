@@ -111,7 +111,7 @@ export function ControlPanel({
           {/* Debug Toggle */}
           <Button
             onClick={onToggleDebug}
-            variant={showDebug ? 'default' : 'outline'}
+            variant={showDebug ? 'primary' : 'outline'}
             className="w-full"
           >
             <Bug className="mr-2 h-4 w-4" />

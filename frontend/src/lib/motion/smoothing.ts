@@ -128,8 +128,10 @@ export class OneEuroFilter {
 export class Point2DSmoother {
   private xFilter: ExponentialSmoother;
   private yFilter: ExponentialSmoother;
+  private factor: number;
 
   constructor(smoothingFactor: number = 0.5) {
+    this.factor = smoothingFactor;
     this.xFilter = new ExponentialSmoother(smoothingFactor);
     this.yFilter = new ExponentialSmoother(smoothingFactor);
   }
@@ -139,6 +141,12 @@ export class Point2DSmoother {
       x: this.xFilter.smooth(point.x),
       y: this.yFilter.smooth(point.y),
     };
+  }
+
+  setSmoothingFactor(factor: number): void {
+    this.factor = factor;
+    this.xFilter = new ExponentialSmoother(factor);
+    this.yFilter = new ExponentialSmoother(factor);
   }
 
   reset(): void {
@@ -239,7 +247,7 @@ export class LandmarkSmoother {
     if (points.length !== this.pointCount) {
       // Reinitialize if point count changes
       this.pointCount = points.length;
-      this.smoothers = Array(pointCount)
+      this.smoothers = Array(this.pointCount)
         .fill(null)
         .map(() => new Point2DSmoother(this.smoothingFactor));
     }

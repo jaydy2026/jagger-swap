@@ -16,11 +16,11 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "lucide-react": "^0.441.0",
-    "@mediapipe/face_mesh": "^0.4.1675461620",
-    "@mediapipe/pose": "^0.5.1675461620",
-    "@mediapipe/hands": "^0.4.1675461620",
-    "@mediapipe/camera_utils": "^0.3.1675461620",
-    "@mediapipe/drawing_utils": "^0.3.1675461620"
+    "@mediapipe/face_mesh": "0.4.1657299874",
+    "@mediapipe/pose": "0.5.1675469404",
+    "@mediapipe/hands": "0.4.1675469240",
+    "@mediapipe/camera_utils": "0.3.1675466862",
+    "@mediapipe/drawing_utils": "0.3.1675466124"
   },
   "devDependencies": {
     "@types/node": "^20.14.12",

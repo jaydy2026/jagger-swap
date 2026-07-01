@@ -112,7 +112,7 @@ export function DebugOverlay({
   return (
     <div className="absolute inset-0 pointer-events-none">
       <canvas
-        ref={canvasRef}
+        ref={canvasRef as React.RefObject<HTMLCanvasElement>}
         className="w-full h-full"
       />
       <InfoOverlay

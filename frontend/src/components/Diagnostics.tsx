@@ -72,9 +72,11 @@ export function Diagnostics({
       let memoryTotal = 0;
       let memoryUsage = 0;
 
-      if (performance.memory) {
-        memoryUsed = performance.memory.usedJSHeapSize;
-        memoryTotal = performance.jsHeapSizeLimit;
+      // performance.memory is Chrome-specific, check for existence
+      const perf = performance as Performance & { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } };
+      if (perf.memory) {
+        memoryUsed = perf.memory.usedJSHeapSize;
+        memoryTotal = perf.memory.jsHeapSizeLimit;
         memoryUsage = memoryUsed / memoryTotal;
       }
 

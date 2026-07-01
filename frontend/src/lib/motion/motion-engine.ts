@@ -59,7 +59,7 @@ export class MotionEngine implements IMotionEngine {
   private canvasElement: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   
-  private isRunning: boolean = false;
+  private _isRunning: boolean = false;
   private animationFrameId: number | null = null;
   private lastFrameTime: number = 0;
   private frameCount: number = 0;
@@ -134,7 +134,7 @@ export class MotionEngine implements IMotionEngine {
    * Start motion capture
    */
   async start(): Promise<void> {
-    if (this.isRunning) {
+    if (this._isRunning) {
       console.warn('[MotionEngine] Already running');
       return;
     }
@@ -147,7 +147,7 @@ export class MotionEngine implements IMotionEngine {
       await this.initialize();
     }
 
-    this.isRunning = true;
+    this._isRunning = true;
     this.lastFrameTime = performance.now();
     this.lastFpsUpdate = this.lastFrameTime;
 
@@ -161,9 +161,9 @@ export class MotionEngine implements IMotionEngine {
    * Stop motion capture
    */
   stop(): void {
-    if (!this.isRunning) return;
+    if (!this._isRunning) return;
 
-    this.isRunning = false;
+    this._isRunning = false;
 
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
@@ -180,7 +180,7 @@ export class MotionEngine implements IMotionEngine {
    * Check if engine is running
    */
   isRunning(): boolean {
-    return this.isRunning;
+    return this._isRunning;
   }
 
   /**
@@ -487,7 +487,7 @@ export class MotionEngine implements IMotionEngine {
    * Main capture loop
    */
   private captureLoop = async (): Promise<void> => {
-    if (!this.isRunning || !this.videoElement || !this.tracker) return;
+    if (!this._isRunning || !this.videoElement || !this.tracker) return;
 
     const frameStart = performance.now();
 
@@ -530,7 +530,7 @@ export class MotionEngine implements IMotionEngine {
     }
 
     // Schedule next frame
-    if (this.isRunning) {
+    if (this._isRunning) {
       this.animationFrameId = requestAnimationFrame(this.captureLoop);
     }
   };

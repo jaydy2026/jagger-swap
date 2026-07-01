@@ -12,7 +12,6 @@ import { MotionFrame } from '@/lib/motion';
 import { PortraitIdentity, AnimationParameters } from '@/lib/session';
 import {
   AnimationEngineConfig,
-  AnimationEngine,
   AnimationSubscriber,
   AnimationResult,
   AnimationEvent,
@@ -44,7 +43,7 @@ export class BaseAnimationEngine implements AnimationEngine {
   private portrait: PortraitIdentity | null = null;
   private currentParams: AnimationParameters | null = null;
   private frameCount: number = 0;
-  private isRunning: boolean = false;
+  private _isRunning: boolean = false;
   private lastFrameTime: number = 0;
 
   constructor(config?: Partial<AnimationEngineConfig>) {
@@ -194,7 +193,7 @@ export class BaseAnimationEngine implements AnimationEngine {
    * Start animation loop
    */
   start(): void {
-    this.isRunning = true;
+    this._isRunning = true;
     this.emitEvent('started');
     console.log('[AnimationEngine] Animation started');
   }
@@ -203,7 +202,7 @@ export class BaseAnimationEngine implements AnimationEngine {
    * Stop animation loop
    */
   stop(): void {
-    this.isRunning = false;
+    this._isRunning = false;
     this.emitEvent('stopped');
     console.log('[AnimationEngine] Animation stopped');
   }
@@ -212,7 +211,7 @@ export class BaseAnimationEngine implements AnimationEngine {
    * Check if running
    */
   isRunning(): boolean {
-    return this.isRunning;
+    return this._isRunning;
   }
 
   /**

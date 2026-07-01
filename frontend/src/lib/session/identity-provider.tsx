@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useState, useRef } from 'react';
+import type { ReactNode, FC } from 'react';
 import { useSession } from './session-context';
 import { PortraitIdentity } from './types';
 import { SUPPORTED_IMAGE_TYPES, MAX_FILE_SIZE } from '@/types';
@@ -160,7 +161,11 @@ export function usePortraitUpload(options: UsePortraitUploadOptions = {}) {
  * Wraps the portrait image and exposes it via context.
  */
 export interface IdentityProviderProps {
-  children: ReactNode;
+  children: (props: {
+    portrait: PortraitIdentity | null;
+    dimensions: { width: number; height: number } | null;
+    isLoaded: boolean;
+  }) => ReactNode;
   portrait: PortraitIdentity | null;
   onPortraitLoad?: (dimensions: { width: number; height: number }) => void;
 }

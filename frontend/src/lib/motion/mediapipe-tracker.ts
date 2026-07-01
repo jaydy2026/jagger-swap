@@ -86,13 +86,15 @@ export class MediaPipeTracker {
     
     try {
       // Dynamic import of MediaPipe
-      const [
-        { FaceMesh, Pose, Hands },
-      ] = await Promise.all([
+      const [faceMeshModule, poseModule, handsModule] = await Promise.all([
         import('@mediapipe/face_mesh'),
         import('@mediapipe/pose'),
         import('@mediapipe/hands'),
       ]);
+      
+      const { FaceMesh } = faceMeshModule;
+      const { Pose } = poseModule;
+      const { Hands } = handsModule;
 
       // Initialize FaceMesh
       this.faceMesh = new FaceMesh({
@@ -497,7 +499,12 @@ export class MediaPipeTracker {
     }
 
     // Convert landmarks
-    const bodyLandmarks = landmarks.map((lm: any, i: number) => ({
+    const bodyLandmarks: Array<{
+      name: string;
+      point: { x: number; y: number };
+      confidence: number;
+      visibility?: number;
+    }> = landmarks.map((lm: { x: number; y: number; visibility?: number }, i: number) => ({
       name: this.getPoseLandmarkName(i),
       point: { x: lm.x * width, y: lm.y * height },
       confidence: lm.visibility || 1,
@@ -713,7 +720,12 @@ export class MediaPipeTracker {
       }
 
       // Convert landmarks
-      const handLandmarks = landmarks.map((lm: any, idx: number) => ({
+      const handLandmarks: Array<{
+        name: string;
+        point: { x: number; y: number };
+        depth: number;
+        confidence: number;
+      }> = landmarks.map((lm: { x: number; y: number; z: number }, idx: number) => ({
         name: this.getHandLandmarkName(idx),
         point: { x: lm.x * width, y: lm.y * height },
         depth: lm.z,
