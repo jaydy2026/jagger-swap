@@ -117,13 +117,6 @@ export class MotionEngine implements IMotionEngine {
     // Load MediaPipe dependencies
     await this.tracker.load();
 
-    // Set up result callbacks
-    this.tracker.setResultsCallback(
-      () => {}, // Face results handled in processFrame
-      () => {}, // Pose results handled in processFrame
-      () => {}  // Hands results handled in processFrame
-    );
-
     // Emit ready event
     this.emitEvent('ready');
 
@@ -547,28 +540,23 @@ export class MotionEngine implements IMotionEngine {
       return { faces: [], bodies: [], hands: [] };
     }
 
-    const faceStart = performance.now();
-    const poseStart = performance.now();
-    const handsStart = performance.now();
+    const processingStart = performance.now();
 
-    let faces: FaceTrackingData[] = [];
-    let bodies: BodyPoseData[] = [];
-    let hands: HandTrackingData[] = [];
-
-    // Process through MediaPipe trackers
-    await this.tracker.processFrame(this.videoElement);
-
-    // For now, we'll use a simpler synchronous approach
-    // In production, this would be async with proper callbacks
+    // Process through MediaPipe trackers and get results
+    const results = await this.tracker.processFrame(this.videoElement);
 
     // Update timing stats
-    this.stats.faceTrackingTime = performance.now() - faceStart;
-    this.stats.bodyTrackingTime = performance.now() - poseStart;
-    this.stats.handTrackingTime = performance.now() - handsStart;
+    const processingTime = performance.now() - processingStart;
+    this.stats.faceTrackingTime = processingTime / 3;
+    this.stats.bodyTrackingTime = processingTime / 3;
+    this.stats.handTrackingTime = processingTime / 3;
 
-    // For demo purposes, create placeholder data
-    // In production, this would come from MediaPipe callbacks
-    return { faces, bodies, hands };
+    // Log tracking status for debugging
+    if (this.stats.totalFrames % 30 === 0) {
+      console.log(`[MotionEngine] Tracking: ${results.faces.length} faces, ${results.bodies.length} bodies, ${results.hands.length} hands`);
+    }
+
+    return results;
   }
 
   /**

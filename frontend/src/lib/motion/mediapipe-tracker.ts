@@ -10,33 +10,16 @@ import {
   BodyPoseData,
   HandTrackingData,
   HeadPose,
-  MotionEngineConfig,
   Point2D,
   GestureType,
   PoseType,
-  MouthShape,
   Point3D,
 } from './types';
 
 import {
   LandmarkSmoother,
-  Point2DSmoother,
   AngularSmoother,
-  ConfidenceFilter,
-  VelocityFilter,
-  getSmoothingFactor,
 } from './smoothing';
-
-// MediaPipe imports (loaded dynamically)
-type MediaPipeFaceMesh = any;
-type MediaPipePose = any;
-type MediaPipeHands = any;
-
-interface MediaPipeResults {
-  faceMesh?: any;
-  pose?: any;
-  hands?: any;
-}
 
 /**
  * Configuration for MediaPipe trackers
@@ -55,9 +38,9 @@ interface TrackerConfig {
  * normalized format. The MotionEngine uses this internally.
  */
 export class MediaPipeTracker {
-  private faceMesh: MediaPipeFaceMesh | null = null;
-  private pose: MediaPipePose | null = null;
-  private hands: MediaPipeHands | null = null;
+  private faceMesh: any = null;
+  private pose: any = null;
+  private hands: any = null;
   
   private config: TrackerConfig;
   private smoothingConfig: { temporalSmoothing: number; landmarkSmoothing: number };
@@ -70,6 +53,11 @@ export class MediaPipeTracker {
   
   private isInitialized: boolean = false;
   private isLoading: boolean = false;
+
+  // Store results from callbacks
+  private faceResults: any = null;
+  private poseResults: any = null;
+  private handsResults: any = null;
 
   constructor(config: TrackerConfig, smoothingConfig: { temporalSmoothing: number; landmarkSmoothing: number }) {
     this.config = config;
@@ -133,7 +121,21 @@ export class MediaPipeTracker {
         minTrackingConfidence: this.config.minTrackingConfidence,
       });
 
+      // Set up callbacks to capture results
+      this.faceMesh.onResults((results: any) => {
+        this.faceResults = results;
+      });
+      
+      this.pose.onResults((results: any) => {
+        this.poseResults = results;
+      });
+      
+      this.hands.onResults((results: any) => {
+        this.handsResults = results;
+      });
+
       this.isInitialized = true;
+      console.log('[MediaPipeTracker] Initialized successfully');
     } catch (error) {
       console.error('Failed to load MediaPipe:', error);
       throw error;
@@ -143,34 +145,25 @@ export class MediaPipeTracker {
   }
 
   /**
-   * Set callbacks for each tracker
-   */
-  setResultsCallback(
-    onFaceResults: (results: any) => void,
-    onPoseResults: (results: any) => void,
-    onHandsResults: (results: any) => void
-  ): void {
-    if (this.faceMesh) {
-      this.faceMesh.onResults(onFaceResults);
-    }
-    if (this.pose) {
-      this.pose.onResults(onPoseResults);
-    }
-    if (this.hands) {
-      this.hands.onResults(onHandsResults);
-    }
-  }
-
-  /**
    * Process a video frame through all trackers
+   * Returns processed tracking data
    */
-  async processFrame(video: HTMLVideoElement): Promise<void> {
-    if (!this.isInitialized) return;
+  async processFrame(video: HTMLVideoElement): Promise<{
+    faces: FaceTrackingData[];
+    bodies: BodyPoseData[];
+    hands: HandTrackingData[];
+  }> {
+    if (!this.isInitialized) {
+      return { faces: [], bodies: [], hands: [] };
+    }
 
-    const timestamp = performance.now();
+    // Clear previous results
+    this.faceResults = null;
+    this.poseResults = null;
+    this.handsResults = null;
 
-    // Process through all trackers
-    const promises = [];
+    // Send frame to all trackers
+    const promises: Promise<any>[] = [];
     
     if (this.faceMesh) {
       promises.push(this.faceMesh.send({ image: video }));
@@ -182,20 +175,31 @@ export class MediaPipeTracker {
       promises.push(this.hands.send({ image: video }));
     }
 
+    // Wait for all trackers to process
     await Promise.all(promises);
+
+    // Small delay to ensure callbacks have fired
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // Process results
+    const faces = this.faceResults ? this.processFaceResults(this.faceResults) : [];
+    const bodies = this.poseResults ? this.processPoseResults(this.poseResults) : [];
+    const hands = this.handsResults ? this.processHandsResults(this.handsResults) : [];
+
+    return { faces, bodies, hands };
   }
 
   /**
    * Process face mesh results
    */
-  processFaceResults(results: any): FaceTrackingData[] {
+  private processFaceResults(results: any): FaceTrackingData[] {
     if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
       return [];
     }
 
     const faces: FaceTrackingData[] = [];
-    const width = results.imageWidth || 1;
-    const height = results.imageHeight || 1;
+    const width = results.imageWidth || 640;
+    const height = results.imageHeight || 480;
 
     for (let i = 0; i < results.multiFaceLandmarks.length; i++) {
       const landmarks = results.multiFaceLandmarks[i];
@@ -215,7 +219,7 @@ export class MediaPipeTracker {
 
       const smoothers = this.faceSmoothers.get(faceId)!;
 
-      // Convert and smooth landmarks
+      // Convert landmarks to pixel coordinates
       const points: Point2D[] = landmarks.map((lm: any) => ({
         x: lm.x * width,
         y: lm.y * height,
@@ -242,9 +246,9 @@ export class MediaPipeTracker {
         bbox,
         landmarks: {
           points: smoothedPoints,
-          confidence: results.multiFaceLandmarks.length > 0 ? 0.9 : 0,
+          confidence: 0.95,
         },
-        confidence: 0.9,
+        confidence: 0.95,
         isTracked: true,
         headPose,
         leftEye,
@@ -272,199 +276,56 @@ export class MediaPipeTracker {
     const nose = landmarks[1]; // Nose tip
     const leftEyeOuter = landmarks[33]; // Left eye outer corner
     const rightEyeOuter = landmarks[263]; // Right eye outer corner
-    const leftMouth = landmarks[61]; // Left mouth corner
-    const rightMouth = landmarks[291]; // Right mouth corner
 
-    // Calculate angles (simplified model)
+    // Calculate eye distance as reference
     const eyeDistance = Math.sqrt(
       Math.pow(rightEyeOuter.x - leftEyeOuter.x, 2) +
       Math.pow(rightEyeOuter.y - leftEyeOuter.y, 2)
     );
 
-    const mouthDistance = Math.sqrt(
-      Math.pow(rightMouth.x - leftMouth.x, 2) +
-      Math.pow(rightMouth.y - leftMouth.y, 2)
-    );
-
-    // Yaw (left/right rotation)
+    // Yaw (left/right rotation) - based on nose position relative to eye center
     const eyeCenterX = (leftEyeOuter.x + rightEyeOuter.x) / 2;
-    const mouthCenterX = (leftMouth.x + rightMouth.x) / 2;
-    const yaw = Math.atan2(mouthCenterX - eyeCenterX, eyeDistance) * (180 / Math.PI);
+    const noseOffset = nose.x - eyeCenterX;
+    const yaw = (noseOffset / eyeDistance) * 45; // Scale to degrees
 
-    // Roll (tilt)
-    const roll = Math.atan2(
+    // Pitch (up/down rotation) - based on nose position relative to eye line
+    const eyeCenterY = (leftEyeOuter.y + rightEyeOuter.y) / 2;
+    const noseOffsetY = nose.y - eyeCenterY;
+    const pitch = (noseOffsetY / eyeDistance) * 45;
+
+    // Roll - based on eye line angle
+    const rollAngle = Math.atan2(
       rightEyeOuter.y - leftEyeOuter.y,
       rightEyeOuter.x - leftEyeOuter.x
     ) * (180 / Math.PI);
 
-    // Pitch (up/down) - simplified
-    const pitch = Math.atan2(
-      nose.y - (eyeCenterX + mouthCenterX) / 2,
-      eyeDistance
-    ) * (180 / Math.PI);
+    // Smooth the values
+    const smoothedYaw = smoothers[1].smoothAngle(yaw);
+    const smoothedPitch = smoothers[0].smoothAngle(pitch);
+    const smoothedRoll = smoothers[2].smoothAngle(rollAngle);
 
     return {
-      pitch: smoothers[0].smoothAngle(pitch),
-      roll: smoothers[1].smoothAngle(roll),
-      yaw: smoothers[2].smoothAngle(yaw),
+      yaw: smoothedYaw,
+      pitch: smoothedPitch,
+      roll: smoothedRoll,
+      yawConfidence: 0.9,
       pitchConfidence: 0.85,
-      rollConfidence: 0.9,
-      yawConfidence: 0.8,
-    };
-  }
-
-  /**
-   * Extract eye data from landmarks
-   */
-  private extractEyeData(landmarks: Point2D[], isLeft: boolean): any {
-    // Eye landmark indices (MediaPipe Face Mesh)
-    const upperLid = isLeft ? 159 : 386;
-    const lowerLid = isLeft ? 145 : 374;
-    const leftCorner = isLeft ? 33 : 263;
-    const rightCorner = isLeft ? 133 : 362;
-    const pupil = isLeft ? 468 : 473;
-
-    const upperPoint = landmarks[upperLid];
-    const lowerPoint = landmarks[lowerLid];
-    const leftPoint = landmarks[leftCorner];
-    const rightPoint = landmarks[rightCorner];
-    const pupilPoint = landmarks[pupil] || {
-      x: (leftPoint.x + rightPoint.x) / 2,
-      y: (upperPoint.y + lowerPoint.y) / 2,
-    };
-
-    const eyeHeight = Math.abs(lowerPoint.y - upperPoint.y);
-    const eyeWidth = Math.abs(rightPoint.x - leftPoint.x);
-
-    // Normalize openness (0 = closed, 1 = fully open)
-    const aspectRatio = eyeHeight / (eyeWidth + 0.001);
-    const openness = Math.min(1, aspectRatio * 5);
-    const isBlinking = openness < 0.2;
-
-    return {
-      openness: Math.max(0, Math.min(1, openness)),
-      isBlinking,
-      pupil: pupilPoint,
-    };
-  }
-
-  /**
-   * Extract eyebrow data
-   */
-  private extractEyebrowData(landmarks: Point2D[]): any {
-    // Left eyebrow landmarks: 70, 63, 105, 66, 107
-    // Right eyebrow landmarks: 336, 296, 334, 293, 300
-    const leftBrowIndices = [70, 63, 105, 66, 107];
-    const rightBrowIndices = [336, 296, 334, 293, 300];
-
-    // Eye references for comparison
-    const leftEyeTop = landmarks[159];
-    const rightEyeTop = landmarks[386];
-
-    const leftBrowPoints = leftBrowIndices.map((i) => landmarks[i]);
-    const rightBrowPoints = rightBrowIndices.map((i) => landmarks[i]);
-
-    const leftBrowAvgY = leftBrowPoints.reduce((sum, p) => sum + p.y, 0) / leftBrowPoints.length;
-    const rightBrowAvgY = rightBrowPoints.reduce((sum, p) => sum + p.y, 0) / rightBrowPoints.length;
-
-    // Raised: brow is above eye
-    const leftRaised = Math.max(0, (leftBrowAvgY - leftEyeTop.y) / 50);
-    const rightRaised = Math.max(0, (rightBrowAvgY - rightEyeTop.y) / 50);
-
-    // Furrowed: inner brows come together
-    const leftInnerBrow = landmarks[107];
-    const rightInnerBrow = landmarks[336];
-    const browDistance = Math.abs(leftInnerBrow.x - rightInnerBrow.x);
-    const browDistanceNormalized = Math.min(1, browDistance / 40);
-    const furrowed = 1 - browDistanceNormalized;
-
-    return {
-      left: { raised: Math.min(1, leftRaised), furrowed: furrowed * 0.5 },
-      right: { raised: Math.min(1, rightRaised), furrowed: furrowed * 0.5 },
-    };
-  }
-
-  /**
-   * Extract mouth data
-   */
-  private extractMouthData(landmarks: Point2D[]): any {
-    // Mouth landmarks
-    const upperLip = landmarks[13];
-    const lowerLip = landmarks[14];
-    const leftCorner = landmarks[61];
-    const rightCorner = landmarks[291];
-
-    // Openness
-    const mouthHeight = Math.abs(lowerLip.y - upperLip.y);
-    const mouthWidth = Math.abs(rightCorner.x - leftCorner.x);
-    const openness = Math.min(1, (mouthHeight / (mouthWidth + 0.001)) * 3);
-
-    // Smile detection
-    const mouthCornerDiff = (rightCorner.y - leftCorner.y) / (mouthWidth + 0.001);
-    const smile = Math.max(0, Math.min(1, 0.5 - mouthCornerDiff * 5));
-
-    // Determine shape
-    let shape: MouthShape = 'neutral';
-    if (openness < 0.1) {
-      shape = smile > 0.5 ? 'smile' : 'neutral';
-    } else if (openness > 0.5) {
-      shape = smile > 0.5 ? 'surprise' : 'open';
-    } else if (smile > 0.7) {
-      shape = 'smile';
-    }
-
-    return { openness, smile, shape };
-  }
-
-  /**
-   * Extract jaw data
-   */
-  private extractJawData(landmarks: Point2D[]): any {
-    const chin = landmarks[152];
-    const nose = landmarks[1];
-    const leftJaw = landmarks[58];
-    const rightJaw = landmarks[288];
-
-    const jawOpenness = Math.abs(chin.y - nose.y) / 100;
-    const centerX = (leftJaw.x + rightJaw.x) / 2;
-    const jawShift = (chin.x - centerX) / 50;
-
-    return {
-      openness: Math.min(1, jawOpenness),
-      leftShift: Math.max(-1, Math.min(1, -jawShift)),
-      rightShift: Math.max(-1, Math.min(1, jawShift)),
-    };
-  }
-
-  /**
-   * Calculate facial expressions (simplified blendshapes)
-   */
-  private calculateExpressions(landmarks: Point2D[]): any {
-    const mouth = this.extractMouthData(landmarks);
-    const eyebrows = this.extractEyebrowData(landmarks);
-
-    return {
-      smile: mouth.smile,
-      frown: Math.max(0, eyebrows.left.furrowed + eyebrows.right.furrowed) / 2,
-      surprise: mouth.openness > 0.5 ? mouth.openness : 0,
-      anger: (eyebrows.left.furrowed + eyebrows.right.furrowed) / 2,
-      disgust: 0,
-      fear: 0,
-      neutral: 1 - (mouth.smile + mouth.openness) / 2,
+      rollConfidence: 0.8,
     };
   }
 
   /**
    * Calculate face bounding box
    */
-  private calculateFaceBoundingBox(landmarks: Point2D[]): any {
-    const xs = landmarks.map((p) => p.x);
-    const ys = landmarks.map((p) => p.y);
+  private calculateFaceBoundingBox(landmarks: Point2D[]): { x: number; y: number; width: number; height: number } {
+    const xs = landmarks.map(p => p.x);
+    const ys = landmarks.map(p => p.y);
+    
     const minX = Math.min(...xs);
     const maxX = Math.max(...xs);
     const minY = Math.min(...ys);
     const maxY = Math.max(...ys);
-
+    
     return {
       x: minX,
       y: minY,
@@ -474,24 +335,197 @@ export class MediaPipeTracker {
   }
 
   /**
+   * Extract eye data
+   */
+  private extractEyeData(landmarks: Point2D[], isLeft: boolean): {
+    openness: number;
+    isBlinking: boolean;
+    pupil: Point2D;
+  } {
+    // Eye landmark indices
+    const upperLid = isLeft ? 159 : 386;
+    const lowerLid = isLeft ? 145 : 374;
+    const leftCorner = isLeft ? 33 : 362;
+    const rightCorner = isLeft ? 133 : 263;
+
+    const upper = landmarks[upperLid];
+    const lower = landmarks[lowerLid];
+    const left = landmarks[leftCorner];
+    const right = landmarks[rightCorner];
+
+    // Calculate eye openness as ratio of vertical to horizontal distance
+    const verticalDist = Math.sqrt(
+      Math.pow(upper.x - lower.x, 2) + Math.pow(upper.y - lower.y, 2)
+    );
+    const horizontalDist = Math.sqrt(
+      Math.pow(right.x - left.x, 2) + Math.pow(right.y - left.y, 2)
+    );
+
+    const openness = Math.min(1, verticalDist / (horizontalDist * 0.3));
+    const isBlinking = openness < 0.3;
+
+    // Pupil position (midpoint of eye)
+    const pupil: Point2D = {
+      x: (upper.x + lower.x + left.x + right.x) / 4,
+      y: (upper.y + lower.y + left.y + right.y) / 4,
+    };
+
+    return { openness, isBlinking, pupil };
+  }
+
+  /**
+   * Extract eyebrow data
+   */
+  private extractEyebrowData(landmarks: Point2D[]): {
+    left: { raised: number; furrowed: number };
+    right: { raised: number; furrowed: number };
+  } {
+    // Left eyebrow: 70, 63, 105, 66, 107
+    // Right eyebrow: 336, 296, 334, 293, 300
+    
+    const leftBrowCenter = landmarks[70];
+    const rightBrowCenter = landmarks[336];
+    
+    // Reference position (eye level)
+    const leftEye = landmarks[33];
+    const rightEye = landmarks[263];
+    
+    // Calculate raised amount based on distance from eyes
+    const leftRaised = Math.max(0, (leftBrowCenter.y - leftEye.y) / 50);
+    const rightRaised = Math.max(0, (rightBrowCenter.y - rightEye.y) / 50);
+    
+    // Furrowed (inner corners pulled down)
+    const leftInner = landmarks[63];
+    const rightInner = landmarks[296];
+    const leftFurrowed = Math.max(0, (leftInner.y - leftBrowCenter.y) / 20);
+    const rightFurrowed = Math.max(0, (rightInner.y - rightBrowCenter.y) / 20);
+
+    return {
+      left: { raised: leftRaised, furrowed: leftFurrowed },
+      right: { raised: rightRaised, furrowed: rightFurrowed },
+    };
+  }
+
+  /**
+   * Extract mouth data
+   */
+  private extractMouthData(landmarks: Point2D[]): {
+    openness: number;
+    smile: number;
+    shape: 'neutral' | 'smile' | 'open' | 'surprise' | 'pout' | 'grimace';
+    cornerLeft: Point2D;
+    cornerRight: Point2D;
+  } {
+    // Mouth landmarks
+    const upperLip = landmarks[13];
+    const lowerLip = landmarks[14];
+    const leftCorner = landmarks[61];
+    const rightCorner = landmarks[291];
+
+    // Openness
+    const verticalDist = Math.sqrt(
+      Math.pow(upperLip.x - lowerLip.x, 2) + Math.pow(upperLip.y - lowerLip.y, 2)
+    );
+    const horizontalDist = Math.sqrt(
+      Math.pow(rightCorner.x - leftCorner.x, 2) + Math.pow(rightCorner.y - leftCorner.y, 2)
+    );
+    const openness = Math.min(1, verticalDist / (horizontalDist * 0.3));
+
+    // Smile (corner pull)
+    const smile = Math.max(0, (rightCorner.x - leftCorner.x) / horizontalDist - 0.8);
+
+    // Determine mouth shape
+    let shape: 'neutral' | 'smile' | 'open' | 'surprise' | 'pout' | 'grimace' = 'neutral';
+    if (openness > 0.5) {
+      shape = 'open';
+    } else if (smile > 0.3) {
+      shape = 'smile';
+    }
+
+    return {
+      openness,
+      smile,
+      shape,
+      cornerLeft: leftCorner,
+      cornerRight: rightCorner,
+    };
+  }
+
+  /**
+   * Extract jaw data
+   */
+  private extractJawData(landmarks: Point2D[]): {
+    leftShift: number;
+    rightShift: number;
+    openness: number;
+  } {
+    const jawLeft = landmarks[234];
+    const jawRight = landmarks[454];
+    const chin = landmarks[152];
+    
+    const centerX = (jawLeft.x + jawRight.x) / 2;
+    const jawOpenness = Math.abs(chin.y - centerX) / 100;
+    
+    return {
+      leftShift: 0,
+      rightShift: 0,
+      openness: jawOpenness,
+    };
+  }
+
+  /**
+   * Calculate facial expressions
+   */
+  private calculateExpressions(landmarks: Point2D[]): {
+    smile: number;
+    anger: number;
+    sadness: number;
+    surprise: number;
+    joy: number;
+    frown: number;
+    disgust: number;
+    fear: number;
+    neutral: number;
+  } {
+    const mouth = this.extractMouthData(landmarks);
+    const eyebrows = this.extractEyebrowData(landmarks);
+    
+    const smile = mouth.smile;
+    const surprise = mouth.openness > 0.5 ? 1 : 0;
+    const anger = (eyebrows.left.furrowed + eyebrows.right.furrowed) / 2;
+    
+    return {
+      smile,
+      anger,
+      sadness: 0,
+      surprise,
+      joy: smile * 2,
+      frown: 0,
+      disgust: 0,
+      fear: 0,
+      neutral: 1 - smile - anger - surprise,
+    };
+  }
+
+  /**
    * Calculate blink rate
    */
   private calculateBlinkRate(leftOpenness: number, rightOpenness: number): number {
     const avgOpenness = (leftOpenness + rightOpenness) / 2;
-    return 1 - avgOpenness;
+    return avgOpenness < 0.3 ? 1 : 0;
   }
 
   /**
    * Process pose results
    */
-  processPoseResults(results: any): BodyPoseData | null {
-    if (!results.poseLandmarks) {
-      return null;
+  private processPoseResults(results: any): BodyPoseData[] {
+    if (!results.poseLandmarks || results.poseLandmarks.length === 0) {
+      return [];
     }
 
     const landmarks = results.poseLandmarks;
-    const width = results.imageWidth || 1;
-    const height = results.imageHeight || 1;
+    const width = results.imageWidth || 640;
+    const height = results.imageHeight || 480;
 
     // Initialize body smoother if needed
     if (!this.bodySmoother) {
@@ -504,7 +538,7 @@ export class MediaPipeTracker {
       point: { x: number; y: number };
       confidence: number;
       visibility?: number;
-    }> = landmarks.map((lm: { x: number; y: number; visibility?: number }, i: number) => ({
+    }> = landmarks.map((lm: any, i: number) => ({
       name: this.getPoseLandmarkName(i),
       point: { x: lm.x * width, y: lm.y * height },
       confidence: lm.visibility || 1,
@@ -522,9 +556,9 @@ export class MediaPipeTracker {
     // Extract body parts
     const upperBody = this.extractUpperBody(smoothedLandmarks);
     const lowerBody = this.extractLowerBody(smoothedLandmarks);
-    const pose = this.detectPose(upperBody, lowerBody);
+    const pose = this.detectBodyPose(upperBody, lowerBody);
 
-    return {
+    return [{
       id: 'body_0',
       isTracked: true,
       confidence: this.calculateBodyConfidence(smoothedLandmarks),
@@ -532,7 +566,7 @@ export class MediaPipeTracker {
       upperBody,
       lowerBody,
       pose,
-    };
+    }];
   }
 
   /**
@@ -540,88 +574,69 @@ export class MediaPipeTracker {
    */
   private getPoseLandmarkName(index: number): string {
     const names = [
-      'nose', 'left_eye_inner', 'left_eye', 'left_eye_outer',
-      'right_eye_inner', 'right_eye', 'right_eye_outer',
-      'left_ear', 'right_ear', 'mouth_left', 'mouth_right',
-      'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow',
-      'left_wrist', 'right_wrist', 'left_pinky', 'right_pinky',
-      'left_index', 'right_index', 'left_thumb', 'right_thumb',
-      'left_hip', 'right_hip', 'left_knee', 'right_knee',
-      'left_ankle', 'right_ankle', 'left_heel', 'right_heel',
-      'left_foot_index', 'right_foot_index',
+      'nose', 'left_eye_inner', 'left_eye', 'left_eye_outer', 'right_eye_inner',
+      'right_eye', 'right_eye_outer', 'left_ear', 'right_ear', 'mouth_left',
+      'mouth_right', 'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow',
+      'left_wrist', 'right_wrist', 'left_pinky', 'right_pinky', 'left_index',
+      'right_index', 'left_thumb', 'right_thumb', 'left_hip', 'right_hip',
+      'left_knee', 'right_knee', 'left_ankle', 'right_ankle', 'left_heel',
+      'right_heel', 'left_foot_index', 'right_foot_index'
     ];
     return names[index] || `landmark_${index}`;
   }
 
   /**
-   * Extract upper body data
+   * Extract upper body landmarks
    */
   private extractUpperBody(landmarks: any[]): any {
-    const neckIdx = 0; // Using nose as proxy
     const leftShoulder = landmarks[11];
     const rightShoulder = landmarks[12];
     const leftElbow = landmarks[13];
     const rightElbow = landmarks[14];
     const leftWrist = landmarks[15];
     const rightWrist = landmarks[16];
-
-    // Neck (approximate from shoulders)
-    const neckPoint = {
-      x: (leftShoulder.point.x + rightShoulder.point.x) / 2,
-      y: (leftShoulder.point.y + rightShoulder.point.y) / 2,
-    };
-
-    // Shoulder tilt
-    const shoulderTilt = (rightShoulder.point.y - leftShoulder.point.y) /
-      (rightShoulder.point.x - leftShoulder.point.x + 0.001);
-
-    // Shoulder roll
-    const shoulderRoll = (leftShoulder.point.y - rightShoulder.point.y) / 50;
-
-    // Chest (approximate)
-    const chest = {
-      x: neckPoint.x,
-      y: neckPoint.y + (leftShoulder.point.y - neckPoint.y) * 1.5,
-    };
-
-    // Spine estimation
-    const spineTop = neckPoint;
-    const spineMiddle = {
-      x: chest.x,
-      y: (neckPoint.y + leftShoulder.point.y) / 2,
-    };
-    const hipCenter = {
-      x: (landmarks[23]?.point.x + landmarks[24]?.point.x) / 2,
-      y: (landmarks[23]?.point.y + landmarks[24]?.point.y) / 2,
-    };
-    const spineBottom = hipCenter;
-
-    // Spine curvature
-    const curvature = this.calculateSpineCurvature(spineTop, spineMiddle, spineBottom);
+    const leftHip = landmarks[23];
+    const rightHip = landmarks[24];
 
     return {
-      neck: {
-        point: neckPoint,
-        tilt: shoulderTilt,
-        forward: 0, // Would need depth data
-      },
       shoulders: {
-        left: leftShoulder.point,
-        right: rightShoulder.point,
-        roll: shoulderRoll,
+        left: leftShoulder?.point || { x: 0, y: 0 },
+        right: rightShoulder?.point || { x: 0, y: 0 },
+        center: {
+          x: ((leftShoulder?.point?.x || 0) + (rightShoulder?.point?.x || 0)) / 2,
+          y: ((leftShoulder?.point?.y || 0) + (rightShoulder?.point?.y || 0)) / 2,
+        },
+        width: Math.sqrt(
+          Math.pow((rightShoulder?.point?.x || 0) - (leftShoulder?.point?.x || 0), 2) +
+          Math.pow((rightShoulder?.point?.y || 0) - (leftShoulder?.point?.y || 0), 2)
+        ),
       },
-      chest,
       spine: {
-        top: spineTop,
-        middle: spineMiddle,
-        bottom: spineBottom,
-        curvature,
+        top: {
+          x: ((leftShoulder?.point?.x || 0) + (rightShoulder?.point?.x || 0)) / 2,
+          y: ((leftShoulder?.point?.y || 0) + (rightShoulder?.point?.y || 0)) / 2,
+        },
+        bottom: {
+          x: ((leftHip?.point?.x || 0) + (rightHip?.point?.x || 0)) / 2,
+          y: ((leftHip?.point?.y || 0) + (rightHip?.point?.y || 0)) / 2,
+        },
+        curvature: 0,
+      },
+      arms: {
+        left: {
+          elbow: leftElbow?.point || { x: 0, y: 0 },
+          wrist: leftWrist?.point || { x: 0, y: 0 },
+        },
+        right: {
+          elbow: rightElbow?.point || { x: 0, y: 0 },
+          wrist: rightWrist?.point || { x: 0, y: 0 },
+        },
       },
     };
   }
 
   /**
-   * Extract lower body data
+   * Extract lower body landmarks
    */
   private extractLowerBody(landmarks: any[]): any {
     const leftHip = landmarks[23];
@@ -633,46 +648,32 @@ export class MediaPipeTracker {
 
     return {
       hips: {
-        left: leftHip.point,
-        right: rightHip.point,
+        left: leftHip?.point || { x: 0, y: 0 },
+        right: rightHip?.point || { x: 0, y: 0 },
         center: {
-          x: (leftHip.point.x + rightHip.point.x) / 2,
-          y: (leftHip.point.y + rightHip.point.y) / 2,
+          x: ((leftHip?.point?.x || 0) + (rightHip?.point?.x || 0)) / 2,
+          y: ((leftHip?.point?.y || 0) + (rightHip?.point?.y || 0)) / 2,
         },
       },
       knees: {
-        left: leftKnee.point,
-        right: rightKnee.point,
+        left: leftKnee?.point || { x: 0, y: 0 },
+        right: rightKnee?.point || { x: 0, y: 0 },
       },
       ankles: {
-        left: leftAnkle.point,
-        right: rightAnkle.point,
+        left: leftAnkle?.point || { x: 0, y: 0 },
+        right: rightAnkle?.point || { x: 0, y: 0 },
       },
     };
   }
 
   /**
-   * Calculate spine curvature
+   * Detect body pose
    */
-  private calculateSpineCurvature(top: Point2D, middle: Point2D, bottom: Point2D): number {
-    const topToBottom = Math.sqrt(
-      Math.pow(bottom.x - top.x, 2) + Math.pow(bottom.y - top.y, 2)
-    );
-    const deviation = Math.sqrt(
-      Math.pow(middle.x - (top.x + bottom.x) / 2, 2) +
-      Math.pow(middle.y - (top.y + bottom.y) / 2, 2)
-    );
-    return Math.min(1, deviation / (topToBottom + 0.001));
-  }
-
-  /**
-   * Detect pose type
-   */
-  private detectPose(upperBody: any, lowerBody: any): PoseType {
+  private detectBodyPose(upperBody: any, lowerBody: any): PoseType {
     const hipHeight = lowerBody.hips.center.y;
     const kneeHeight = (lowerBody.knees.left.y + lowerBody.knees.right.y) / 2;
     const ankleHeight = (lowerBody.ankles.left.y + lowerBody.ankles.right.y) / 2;
-    const shoulderHeight = (upperBody.shoulders.left.y + upperBody.shoulders.right.y) / 2;
+    const shoulderHeight = upperBody.shoulders.center.y;
 
     // Check if sitting vs standing
     const legRatio = (ankleHeight - kneeHeight) / (hipHeight - ankleHeight + 0.001);
@@ -691,7 +692,7 @@ export class MediaPipeTracker {
    */
   private calculateBodyConfidence(landmarks: any[]): number {
     const visibleLandmarks = landmarks.filter(
-      (l) => l.visibility !== undefined && l.visibility > 0.5
+      (l: any) => l.visibility !== undefined && l.visibility > 0.5
     );
     return visibleLandmarks.length / landmarks.length;
   }
@@ -699,14 +700,14 @@ export class MediaPipeTracker {
   /**
    * Process hands results
    */
-  processHandsResults(results: any): HandTrackingData[] {
+  private processHandsResults(results: any): HandTrackingData[] {
     if (!results.multiHandLandmarks || !results.multiHandedness) {
       return [];
     }
 
     const hands: HandTrackingData[] = [];
-    const width = results.imageWidth || 1;
-    const height = results.imageHeight || 1;
+    const width = results.imageWidth || 640;
+    const height = results.imageHeight || 480;
 
     for (let i = 0; i < results.multiHandLandmarks.length; i++) {
       const landmarks = results.multiHandLandmarks[i];
@@ -775,17 +776,17 @@ export class MediaPipeTracker {
    */
   private getHandLandmarkName(index: number): string {
     const fingers = ['thumb', 'index', 'middle', 'ring', 'pinky'];
-    const parts = ['wrist', 'palm', ' MCP', ' PIP', ' DIP', ' tip'];
+    const parts = ['wrist', 'palm', 'MCP', 'PIP', 'DIP', 'tip'];
     const finger = Math.floor(index / 4);
     const part = index % 4;
-    return `${fingers[finger] || 'unknown'}${parts[part] || ''}`;
+    return `${fingers[finger] || 'unknown'}_${parts[part] || 'unknown'}`;
   }
 
   /**
    * Extract finger data
    */
   private extractFingers(landmarks: any[]): any {
-    // Landmark indices for each finger (tip, middle, base)
+    // Landmark indices for each finger (tip, PIP, MCP)
     const fingerIndices = {
       thumb: [4, 3, 2],
       index: [8, 6, 5],
@@ -798,32 +799,31 @@ export class MediaPipeTracker {
 
     for (const [name, indices] of Object.entries(fingerIndices)) {
       const tip = landmarks[indices[0]]?.point;
-      const middle = landmarks[indices[1]]?.point;
-      const base = landmarks[indices[2]]?.point;
+      const pip = landmarks[indices[1]]?.point;
+      const mcp = landmarks[indices[2]]?.point;
 
-      if (tip && middle && base) {
-        // Calculate extension and curl
-        const tipToBase = Math.sqrt(
-          Math.pow(tip.x - base.x, 2) + Math.pow(tip.y - base.y, 2)
+      if (tip && pip && mcp) {
+        // Calculate extension based on finger straightness
+        const tipToMcp = Math.sqrt(
+          Math.pow(tip.x - mcp.x, 2) + Math.pow(tip.y - mcp.y, 2)
         );
-        const tipToMiddle = Math.sqrt(
-          Math.pow(tip.x - middle.x, 2) + Math.pow(tip.y - middle.y, 2)
+        const tipToPip = Math.sqrt(
+          Math.pow(tip.x - pip.x, 2) + Math.pow(tip.y - pip.y, 2)
         );
-        const extension = Math.min(1, tipToMiddle / 30);
-        const curled = 1 - extension;
+        const extension = Math.min(1, tipToPip / (tipToMcp * 0.5));
 
         fingers[name] = {
           isExtended: extension > 0.5,
           extension,
-          curled,
-          landmarks: { tip, middle, base },
+          curled: 1 - extension,
+          landmarks: { tip, pip, mcp },
         };
       } else {
         fingers[name] = {
           isExtended: false,
           extension: 0,
           curled: 1,
-          landmarks: { tip: base || tip, middle: base || middle, base },
+          landmarks: { tip: tip || mcp, pip: pip || mcp, mcp },
         };
       }
     }
@@ -854,10 +854,8 @@ export class MediaPipeTracker {
     const isOpen = extendedFingers >= 4;
 
     // Peace sign
-    const peace = fingers.index.isExtended && fingers.middle.isExtended && !fingers.ring.isExtended && !fingers.pinky.isExtended;
-
-    // OK sign
-    const okSign = thumb.isExtended && index.isExtended && this.checkThumbIndexTouch(thumb, index);
+    const peace = fingers.index.isExtended && fingers.middle.isExtended && 
+                  !fingers.ring.isExtended && !fingers.pinky.isExtended;
 
     if (isOpen) {
       return { gesture: 'open', confidence: 0.9 };
@@ -869,32 +867,18 @@ export class MediaPipeTracker {
       return { gesture: 'pointing', confidence: 0.8 };
     } else if (peace) {
       return { gesture: 'peace', confidence: 0.75 };
-    } else if (okSign) {
-      return { gesture: 'ok_sign', confidence: 0.7 };
     }
 
     return { gesture: 'unknown', confidence: 0.5 };
   }
 
   /**
-   * Check if thumb and index are touching (for OK sign)
-   */
-  private checkThumbIndexTouch(thumb: any, index: any): boolean {
-    const dist = Math.sqrt(
-      Math.pow(thumb.landmarks.tip.x - index.landmarks.tip.x, 2) +
-      Math.pow(thumb.landmarks.tip.y - index.landmarks.tip.y, 2)
-    );
-    return dist < 30;
-  }
-
-  /**
    * Calculate palm normal and direction
    */
   private calculatePalmData(landmarks: any[]): { normal: Point3D; direction: Point3D } {
-    const wrist = landmarks[0]?.point || { x: 0, y: 0, z: 0 };
-    const middleMcp = landmarks[9]?.point || { x: 0, y: 0, z: 0 };
+    const wrist = landmarks[0]?.point || { x: 0, y: 0 };
+    const middleMcp = landmarks[9]?.point || { x: 0, y: 0 };
 
-    // Simplified palm direction (from wrist to middle finger)
     const direction: Point3D = {
       x: middleMcp.x - wrist.x,
       y: middleMcp.y - wrist.y,
@@ -902,7 +886,7 @@ export class MediaPipeTracker {
     };
 
     return {
-      normal: { x: 0, y: 0, z: 1 }, // Simplified
+      normal: { x: 0, y: 0, z: 1 },
       direction,
     };
   }
@@ -929,5 +913,7 @@ export class MediaPipeTracker {
     this.leftHandSmoother = null;
     this.rightHandSmoother = null;
     this.isInitialized = false;
+    
+    console.log('[MediaPipeTracker] Disposed');
   }
 }
